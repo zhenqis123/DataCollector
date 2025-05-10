@@ -1,0 +1,9 @@
+{
+    "session_count": 2,
+    "repeat_count_per_gesture": 1,
+    "random_gesture_count": 7,
+    "update_interval": 15,
+    "full": true,
+    "random_gesture_session_time": 120,
+    "media_dir": "D:\\Research\\code\\WristPose\\data\\gesture_videos"
+}

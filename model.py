@@ -597,7 +597,7 @@ class FrameReceiver(QThread):
             )
             self.cleanup(jsonl_filename="data_stream.jsonl")
 
-    def start_file_receiver(self, save_dir="./received_files", ip="0.0.0.0", port=5000):
+    def start_file_receiver(self, save_dir="./received_files", ip="0.0.0.0", port=5001):
         """在子线程中启动接收函数"""
         thread = threading.Thread(
             target=self._file_receiver_once, args=(save_dir, ip, port), daemon=True

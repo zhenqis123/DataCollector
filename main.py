@@ -6,7 +6,7 @@ from controller import SystemController
 
 # import time
 
-DATA_DIR = "D:\Research\code\WristPose\data\data"
+DATA_DIR = "data"
 
 
 def main():
@@ -24,7 +24,7 @@ def main():
         receiver,
         control_view,
         gesture_view,
-        gesture_config_path="D:\Research\code\WristPose\data\gesture_config.json",
+        gesture_config_path="configs/gesture_config.json",
     )
 
     # 显示界面

@@ -23,15 +23,15 @@ class SystemController(QObject):
         model: FrameReceiver,
         control_view: ControlView,
         gesture_view: GestureView,
-        gesture_config_path: str = r"D:\Research\code\WristPose\data\gesture_config.json",
-        data_dir: str = r"D:\Research\code\WristPose\data\data",
+        gesture_config_path: str = r"configs/gesture_config.json",
+        data_dir: str = r"data",
     ):
         super().__init__()
         self.model = model
         self.data_dir = data_dir
         self.control_view = control_view
         self.gesture_view = gesture_view
-        self.gesture_view.move_to_screen(2)
+        self.gesture_view.move_to_screen(1)
         self.fsm = SystemStateMachine(self)
         # self._wire_signals()
         self.gesture_config_path = gesture_config_path
