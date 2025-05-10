@@ -5,5 +5,5 @@
     "update_interval": 15,
     "full": true,
     "random_gesture_session_time": 120,
-    "media_dir": "D:\\Research\\code\\WristPose\\data\\gesture_videos"
+    "media_dir": "gesture_videos"
 }
