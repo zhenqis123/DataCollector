@@ -456,7 +456,7 @@ class FrameReceiver(QThread):
 
     def init_decoder(self):
         try:
-            self.jpeg = TurboJPEG("C:/libjpeg-turbo-gcc64/bin/libturbojpeg.dll")
+            self.jpeg = TurboJPEG("libturbojpeg.dll")
             self.turbo_enabled = True
         except:
             self.turbo_enabled = False
