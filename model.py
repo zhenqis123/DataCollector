@@ -24,9 +24,7 @@ import numpy as np
 import zstandard
 from PyQt5.QtCore import QByteArray, QMutex, QMutexLocker, QThread, pyqtSignal
 from tqdm import tqdm  # 需要先安装tqdm库
-from turbojpeg import TJFLAG_FASTDCT, TurboJPEG
 
-# from .data.utils.LuMoSDKClient import LusterFrame
 from utils.LuMoSDKClient import LusterFrame
 
 
@@ -455,12 +453,7 @@ class FrameReceiver(QThread):
         self.temp_dir = os.path.join(self.data_dir, "temp")
 
     def init_decoder(self):
-        try:
-            self.jpeg = TurboJPEG("libturbojpeg.dll")
-            self.turbo_enabled = True
-        except:
-            self.turbo_enabled = False
-            print("⚠️ TurboJPEG不可用，使用OpenCV软解码")
+        pass
 
     def init_socket(self):
         self.video_socket = self.create_tcp_socket(self.port)
