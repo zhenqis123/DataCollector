@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import QApplication
 from model import FrameReceiver
 from views import ControlView, GestureView
 from controller import SystemController
+import multiprocessing
 
 # import time
 

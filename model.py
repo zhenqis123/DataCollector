@@ -55,8 +55,13 @@ class FrameReceiver(QThread):
     update_status_signal = pyqtSignal(str)
     update_imu_signal = pyqtSignal(object)
     update_cap_stats_signal = pyqtSignal(dict)
+    
+    update_sensel_data_signal = pyqtSignal(object, object)# sensel数据更新信号
+    update_sensel_state_signal = pyqtSignal(object)# sensel状态更新信号
 
-    def __init__(self, host, port, data_dir):
+    def __init__(self, host, port, data_dir,
+                 sensel_data_queue=None,
+                 sensel_state_queue=None):
         super().__init__()
         self.host = host
         self.port = port
@@ -72,6 +77,10 @@ class FrameReceiver(QThread):
         self.init_decoder()
         self.init_socket()
         self.init_video()
+        
+        #进程共享队列
+        self.sensel_data_queue = sensel_data_queue
+        self.sensel_state_queue = sensel_state_queue
 
     def run(self):
         self.running = True
@@ -90,7 +99,31 @@ class FrameReceiver(QThread):
         self.lf_receive_thread.start()
         self.start_lf_decoder()
         self.lf_save_thread.start()
-
+        
+        #启动sensel数据接收线程
+        threading.Thread(target=self._poll_sensel_data_queue, daemon=True).start()
+        #启动sensel状态接收线程
+        threading.Thread(target=self._poll_sensel_state_queue, daemon=True).start()
+        
+    def _poll_sensel_data_queue(self):
+        from queue import Empty
+        while self.running:
+            try:
+                arr, contacts = self.sensel_data_queue.get(timeout=0.1)
+                self.update_sensel_data_signal.emit(arr, contacts)
+            except Empty:
+                continue
+    def _poll_sensel_state_queue(self):
+        from queue import Empty
+        while self.running:
+            try:
+                state = self.sensel_state_queue.get(timeout=0.1)
+                self.update_sensel_state_signal.emit(state)
+            except Empty:
+                continue   
+        
+        
+        
     def start_recording(self, name):
         self.is_recording = True
         self.name = name

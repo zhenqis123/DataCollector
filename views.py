@@ -21,7 +21,8 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaPlaylist, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 from PyQt5.QtCore import QUrl
 import vlc
-
+import matplotlib.pyplot as plt
+#from matplotlib.animation import FuncAnimation
 
 class ControlView(QWidget):
     control_event = pyqtSignal(str, object)  # Signal: event type and optional data
@@ -33,9 +34,29 @@ class ControlView(QWidget):
         self.accel_data = {"x": [], "y": [], "z": [], "t": []}
         self.gyro_data = {"x": [], "y": [], "z": [], "t": []}
         self.setup_plots()
+        self.setup_animation()
         self.init_ui()
 
         self.setStyleSheet(self._get_stylesheet())
+
+    def setup_animation(self):
+        """初始化动画绘图区域"""
+        self.anim_fig = Figure(figsize=(4, 4))
+        self.anim_ax = self.anim_fig.add_subplot(111)
+        self.anim_ax.set_title("Sensel Pressure & Contacts", fontsize=10)
+        self.anim_canvas = FigureCanvas(self.anim_fig)
+        
+        # 初始空压力图
+        data = np.zeros((105, 180), dtype=float)
+        self.anim_ax.imshow(
+            data,
+            cmap='jet',
+            vmin=0,
+            vmax=20,
+            extent=(0, 180, 0, 105),
+            origin='lower',
+            aspect='auto'
+        )
 
     def init_ui(self):
         main_layout = QVBoxLayout()
@@ -63,18 +84,26 @@ class ControlView(QWidget):
         subject_layout.addStretch()
         main_layout.addLayout(subject_layout)
 
-        # ==== Video Display Area ====
+        # ==== Video & Animation Display Area ====
+        video_anim_layout = QHBoxLayout()
+        # 视频显示
         self.video_label = QLabel()
         self.video_label.setObjectName("video")
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setMinimumSize(640, 480)
-        main_layout.addWidget(self.video_label, stretch=4)
+        video_anim_layout.addWidget(self.video_label, stretch=4)
+        # 动画绘图显示
+        video_anim_layout.addWidget(self.anim_canvas, stretch=4)
+        main_layout.addLayout(video_anim_layout, stretch=4)
 
         # ==== Status Display Area (New) ====
         status_layout = QHBoxLayout()
         self.label_cap_fps = QLabel("Capture FPS: 0.0")
         self.label_save_fps = QLabel("Save FPS: 0.0")
         self.label_send_fps = QLabel("Send FPS: 0.0")
+        self.label_sensel_cap_fps = QLabel("Sensel Cap FPS: 0.0")
+        self.label_sensel_save_fps = QLabel("Sensel Save FPS: 0.0")
+        self.label_sensel_send_fps = QLabel("Sensel Send FPS: 0.0")
         self.label_keypoints_fps = QLabel("Keypoints FPS: 0.0")
         self.label_loss_rate = QLabel("Loss Rate: 0.0%")
         self.label_rtt = QLabel("RTT: 0 ms")
@@ -84,9 +113,12 @@ class ControlView(QWidget):
             self.label_cap_fps,
             self.label_save_fps,
             self.label_send_fps,
+            self.label_sensel_cap_fps,
+            self.label_sensel_save_fps,
+            self.label_sensel_send_fps,
+            self.label_keypoints_fps,
             self.label_loss_rate,
             self.label_rtt,
-            self.label_keypoints_fps,
             self.label_keypoints_num,
         ]:
             label.setStyleSheet(
@@ -239,7 +271,64 @@ class ControlView(QWidget):
         )
 
         return button_layout
+    
+    def update_sensel_data(self,arr,contacts):
+        """更新动画绘图区域：压力热图 + 触点标记 + 力值文本"""
+        # 1) 清除上次绘制
+        self.anim_ax.clear()
 
+        # 2) 绘制压力热图
+        self.anim_ax.imshow(
+            arr,
+            cmap='jet',
+            vmin=0,
+            vmax=20,
+            extent=(0, 105, 0, 180),
+            origin='lower',
+            aspect='auto'
+        )
+
+        # 3) 提取并绘制触点散点
+        xs = [c['x'] for c in contacts]
+        ys = [c['y'] for c in contacts]
+        forces = [c['force'] for c in contacts]
+        sizes = [max(f * 2, 20) for f in forces]
+        self.anim_ax.scatter(
+            xs, ys,
+            s=sizes,
+            c='white',
+            edgecolors='black',
+            alpha=0.5,
+            zorder=2
+        )
+
+        # 4) 添加力值文本标注
+        for x, y, f in zip(xs, ys, forces):
+            self.anim_ax.text(
+                x, y,
+                f"{f:.1f}",
+                color='black',
+                fontsize=8,
+                ha='center',
+                va='bottom',
+                zorder=3
+            )
+
+        # 5) 刷新画布
+        self.anim_canvas.draw_idle()
+        
+    def update_sensel_state(self, stats):
+        cap = stats.get("cap_fps", 0.0)
+        save = stats.get("save_fps", 0.0)
+        send = stats.get("send_fps", 0.0)
+        """更新 Sensel 采集/保存/发送 FPS 显示"""
+        self.label_sensel_cap_fps.setText(f"Sensel Cap FPS: {cap:.2f}")
+        self.label_sensel_save_fps.setText(f"Sensel Save FPS: {save :.2f}")
+        self.label_sensel_send_fps.setText(f"Sensel Send FPS: {send:.2f}")
+
+        
+       
+        
     def update_video(self, frame):
         h, w, ch = frame.shape
         bytes_per_line = ch * w

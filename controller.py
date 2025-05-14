@@ -314,6 +314,8 @@ class SystemController(QObject):
         self.model.update_imu_signal.connect(self.handle_imu)
         self.model.update_cap_stats_signal.connect(self.handle_cap_stats)
         self.control_view.control_event.connect(self.handle_control_event)
+        self.model.update_sensel_data_signal.connect(self.control_view.update_sensel_data)
+        self.model.update_sensel_state_signal.connect(self.control_view.update_sensel_state )      
 
     @pyqtSlot(dict)
     def handle_cap_stats(self, cap_stats):
