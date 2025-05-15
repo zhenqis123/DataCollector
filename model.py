@@ -17,8 +17,7 @@ import threading
 import time
 import zipfile
 from collections import deque
-from queue import Queue
-
+from multiprocessing import Process, Queue
 import cv2
 import numpy as np
 import zstandard
@@ -56,12 +55,12 @@ class FrameReceiver(QThread):
     update_imu_signal = pyqtSignal(object)
     update_cap_stats_signal = pyqtSignal(dict)
     
-    update_sensel_data_signal = pyqtSignal(object, object)# sensel数据更新信号
-    update_sensel_state_signal = pyqtSignal(object)# sensel状态更新信号
+    update_sensel_data_signal = pyqtSignal(np.ndarray, list)# sensel数据更新信号
+    update_sensel_state_signal = pyqtSignal(dict)# sensel状态更新信号
 
     def __init__(self, host, port, data_dir,
-                 sensel_data_queue=None,
-                 sensel_state_queue=None):
+                 sensel_data_queue:Queue,
+                 sensel_state_queue:Queue):
         super().__init__()
         self.host = host
         self.port = port
@@ -109,15 +108,18 @@ class FrameReceiver(QThread):
         from queue import Empty
         while self.running:
             try:
-                arr, contacts = self.sensel_data_queue.get(timeout=0.1)
+                ts,arr, contacts = self.sensel_data_queue.get(timeout=0.1)
+                #print(f"接收到Sensel数据: {arr.shape}, {contacts}")
                 self.update_sensel_data_signal.emit(arr, contacts)
             except Empty:
+                #print("Sensel数据队列为空")
                 continue
     def _poll_sensel_state_queue(self):
         from queue import Empty
         while self.running:
             try:
                 state = self.sensel_state_queue.get(timeout=0.1)
+                #print(f"接收到Sensel状态: {state}")
                 self.update_sensel_state_signal.emit(state)
             except Empty:
                 continue   

@@ -8,21 +8,22 @@ from queue import Queue
 
 import cv2
 import numpy as np
-from controller_fsm import SystemStateMachine
 from model import FrameReceiver
 from PyQt5.QtCore import QObject, QTimer, pyqtSlot
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QDialog, QMessageBox
 from transitions import Machine
 from views import ControlView, GestureView, SessionBreakDialog, WhetherSaveDialog
-
-
+from multiprocessing import Process, Queue
+import numpy as np
+from PyQt5.QtCore import QObject, QTimer, pyqtSlot
 class SystemController(QObject):
     def __init__(
         self,
         model: FrameReceiver,
         control_view: ControlView,
         gesture_view: GestureView,
+        cmd_queue: Queue,
         gesture_config_path: str = r"configs/gesture_config.json",
         data_dir: str = r"data",
     ):
@@ -31,8 +32,8 @@ class SystemController(QObject):
         self.data_dir = data_dir
         self.control_view = control_view
         self.gesture_view = gesture_view
+        self.cmd_queue = cmd_queue
         self.gesture_view.move_to_screen(1)
-        self.fsm = SystemStateMachine(self)
         # self._wire_signals()
         self.gesture_config_path = gesture_config_path
         # Initialize subject information
@@ -314,8 +315,9 @@ class SystemController(QObject):
         self.model.update_imu_signal.connect(self.handle_imu)
         self.model.update_cap_stats_signal.connect(self.handle_cap_stats)
         self.control_view.control_event.connect(self.handle_control_event)
-        self.model.update_sensel_data_signal.connect(self.control_view.update_sensel_data)
-        self.model.update_sensel_state_signal.connect(self.control_view.update_sensel_state )      
+        #GUI → SenselCollector
+        self.model.update_sensel_data_signal.connect(self.handle_sensel_frame)
+        self.model.update_sensel_state_signal.connect( self.handle_sensel_state)      
 
     @pyqtSlot(dict)
     def handle_cap_stats(self, cap_stats):
@@ -330,6 +332,15 @@ class SystemController(QObject):
         self.control_view.update_status(
             cap_fps, save_fps, send_fps, loss_rate, rtt, keypints_fps, keypoints_num
         )
+
+    @pyqtSlot(np.ndarray,list)
+    def handle_sensel_frame(self, frame,contact):
+        self.control_view.update_sensel_frame(frame,contact)
+    
+    @pyqtSlot(dict)
+    def handle_sensel_state(self, state):
+        self.control_view.update_sensel_state(state)
+
 
     @pyqtSlot(np.ndarray)
     def handle_frame(self, frame):
@@ -364,6 +375,8 @@ class SystemController(QObject):
             print(f"[Warning] {event_type} event requires data")
             return
         handler(data) if require_data else handler()
+        # 将控制事件推入 SenselCollector 子进程
+        self.cmd_queue.put((event_type, data))
 
     def pause_recording(self):
         self.is_active = False
