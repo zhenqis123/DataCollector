@@ -13,6 +13,7 @@ import cv2
 import csv
 from multiprocessing import Process, Queue
 import os, sys
+from concurrent.futures import ThreadPoolExecutor
 
 # 1. 动态定位 wrapper 目录  
 here = os.path.dirname(__file__)  
@@ -65,7 +66,7 @@ class SenselCollector:
                  data_send_queue:Queue,#压力图数据发送队列
                  state_send_queue:Queue,#状态数据发送队列
                  capture_fps=200,
-                 send_fps=60):
+                 send_fps=30):
         self.capture_fps = capture_fps
         self.send_fps = send_fps
         #定义写入文件路径
@@ -97,6 +98,8 @@ class SenselCollector:
         self.running.set()
         #初始化时开始线程
         #self.run()
+        # 线程池用于异步保存帧
+        self.save_executor = ThreadPoolExecutor(max_workers=2)
 
     def init_device(self):
         self.handle = self.open_sensel()
@@ -154,6 +157,8 @@ class SenselCollector:
         self.running.clear()
         for t in self._threads:
             t.join()
+        # 确保保存线程池关闭
+        self.save_executor.shutdown(wait=True)
         self.close_sensel(self.handle, self.frame)
         print("Sensel collector stopped.")   
          
@@ -194,13 +199,17 @@ class SenselCollector:
                             "force": c.total_force}
                             for c in self.frame.contacts[:self.frame.n_contacts]
                         ]
+                contacts = self.supply_contact(arr, contacts)
                 #recording 时再给写线程入写文件队列
                 if not self.paused:
                     ts = time.time()
                     try:
-                        self.write_frame_queue.put((ts,arr,contacts), block=False)#直接把原码放入队列
-                        self.send_frame_queue=self.write_frame_queue
-                        
+                        self.write_frame_queue.put((ts,arr,contacts), block=False)
+                    except queue.Full:
+                        pass
+                    
+                    try:
+                        self.send_frame_queue.put((ts, arr, contacts), block=False)
                     except queue.Full:
                         pass
         
@@ -223,22 +232,18 @@ class SenselCollector:
         
     def write_sensel_thread(self):
         #不断从队列中读取数据写入文件
-        """专门将采集到的 sensel 数据写入本地文件"""
-        while self.running.is_set() or not self.frame_queue.empty():
+        flush_interval = 10  # 每 10 帧 flush 一次
+        while self.running.is_set() or not self.write_frame_queue.empty():
             if not self.is_recording:
-                #循环等待，直到开始录制
-                # 这里的 self.is_recording 是一个布尔值，表示是否正在录制
                 time.sleep(0.1)
                 continue
             try:
-                timestamp,arr,contacts = self.write_frame_queue.get(timeout=0.1)
-                contacts = self.supply_contact(arr, contacts)
-                #arr, contacts = self.decode_sensel_frame(frame)
+                timestamp, arr, contacts = self.write_frame_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
-            
+
+            # 写 contacts.csv（仅写，不立即 flush）
             if contacts:
-                # 1. 写入 contacts.csv（每个触点一行）
                 for c in contacts:
                     self.contacts_writer.writerow([
                         self.sensel_frame_id,
@@ -249,29 +254,29 @@ class SenselCollector:
                         c["force"]
                     ])
             else:
-                # 如果没有触点，写入一行空行
                 self.contacts_writer.writerow([
                     self.sensel_frame_id,
                     timestamp
                 ])
-            self.contacts_file.flush()
-            
-            # 2. 保存压力arr帧
+
+            # 每隔 flush_interval 帧再 flush
+            if self.sensel_frame_id % flush_interval == 0:
+                self.contacts_file.flush()
+
+            # 异步保存 .npy
             frame_file = os.path.join(
                 self.sensel_frames_folder,
                 f"{self.sensel_frame_id:06d}.npy"
             )
-            np.save(frame_file, arr)
-            
-            
+            self.save_executor.submit(np.save, frame_file, arr)
+
             self.sensel_frame_id += 1
             self.save_fps_tool.update()
-            
-        # 循环结束后，关闭 contacts.csv
+
+        # 结束后关闭 CSV
         if hasattr(self, "contacts_file") and not self.contacts_file.closed:
             self.contacts_file.close()
-            
-            
+
     def send_sensel_thread(self):
         # 以 30FPS 的频率发送 Sensel 数据到 GUI
         import time, queue
@@ -281,7 +286,7 @@ class SenselCollector:
             try:
                 timestamp, arr,contacts = self.send_frame_queue.get(timeout=0.1)
                 #arr, contacts = self.decode_sensel_frame(frame)
-                contacts = self.supply_contact(arr, contacts)
+                
             except queue.Empty:
                 #print("send_sensel_thread: send_frame_queue is empty")
                 continue
@@ -294,7 +299,7 @@ class SenselCollector:
             if not self.paused:
                 # 发送压力图和触点数据到 GUI
                 self.data_send_queue.put((timestamp, arr, contacts))
-                print(f"发送压力图, timestamp: {timestamp:.2f}, arr shape: {arr.shape}, contacts: {len(contacts)}")
+                #print(f"发送压力图, timestamp: {timestamp:.2f}, arr shape: {arr.shape}, contacts: {len(contacts)}")
                 self.send_fps_tool.update()
             
             
@@ -346,7 +351,7 @@ class SenselCollector:
             cx, cy = centroids[lbl]
             ix, iy = int(cx), int(cy)
             # 跳过已有触点附近
-            if any(abs(ix - ex) <= 10 and abs(iy - ey) <= 10 for ex, ey in existing_px):
+            if any(abs(ix - ex) <= 20 and abs(iy - ey) <= 20 for ex, ey in existing_px):
                 continue
             
             # 计算该连通域的合力 (3x3 邻域求和)
@@ -420,11 +425,12 @@ class SenselCollector:
         
         
     def stop_recording(self):
-        #停止记录，受到sensel_listener的控制
-        # 关闭文件
+        # 停止记录
         if hasattr(self, "contacts_file") and not self.contacts_file.closed:
             self.contacts_file.close()
         self.is_recording = False
+        # 等待所有保存任务完成
+        self.save_executor.shutdown(wait=True)
 
 
 
