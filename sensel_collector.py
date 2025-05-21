@@ -150,34 +150,37 @@ class SenselCollector:
         for t in self._threads:
             t.start()
         print("Sensel collector threads started.")
-        self._send_thread_started = True
+        #self._send_thread_started = True
     
     
     def stop(self):
         self.running.clear()
         for t in self._threads:
             t.join()
+        self.running.clear()
         # 确保保存线程池关闭
         self.save_executor.shutdown(wait=True)
         self.close_sensel(self.handle, self.frame)
         print("Sensel collector stopped.")   
          
     def capture_sensel_thread(self):
-        """以 200 Hz 频率不断读取 Sensel 并入各个队列
-            capture只负责采集原始数据
-            write负责解码并写入文件
-            """
+        """以固定频率读取 Sensel 数据，使用 next_time 保持稳定间隔"""
         target_interval = 1.0 / self.capture_fps
-        last_time = time.time()
-        print("Sensel collector started.")
+        # 只执行一次，作为循环的基准时刻
+        next_time = time.perf_counter()
+
         while self.running.is_set():
-            # —— 限速到 capture_fps —— 
-            now = time.time()
-            delta = now - last_time
-            if delta < target_interval:
-                time.sleep(target_interval - delta)
-            last_time = time.time()
-            # —— 读取一帧 Sensel 数据 —— 
+            now = time.perf_counter()
+            if now < next_time:
+                # 等到“下次”时刻再采集
+                time.sleep(next_time - now)
+            else:
+                # 如果已经晚了，马上对齐
+                next_time = now
+            # 推进到下一帧的触发时刻
+            next_time += target_interval
+
+            # —— 真正的采集逻辑放这里 —— 
             sensel.readSensor(self.handle)
             _, n = sensel.getNumAvailableFrames(self.handle)
             if n > 0:
@@ -212,6 +215,7 @@ class SenselCollector:
                         self.send_frame_queue.put((ts, arr, contacts), block=False)
                     except queue.Full:
                         pass
+            
         
     # def decode_sensel_frame(self, frame):   
     #     # ③ 直接用缓存类型快速 cast
@@ -326,7 +330,7 @@ class SenselCollector:
         - contacts: 已有的 contacts 列表
         返回新的 contacts 列表 (原列表 + 新补充)
         """
-        fallback_thresh = 0.05   # 自定义小阈值 (N)
+        fallback_thresh = 0.5   # 自定义小阈值 (N)
         # 二值化掩码
         mask = (arr > fallback_thresh).astype('uint8') * 255
         # 连通域分析
@@ -345,7 +349,7 @@ class SenselCollector:
         for lbl in range(1, n_labels):
             # 面积太小可忽略
             area = stats[lbl, cv2.CC_STAT_AREA]
-            if area < 100:
+            if area < 10:
                 continue
             # 质心 (x_pixel, y_pixel)
             cx, cy = centroids[lbl]
@@ -408,7 +412,7 @@ class SenselCollector:
         write_path=os.path.join(self.root, self.write_dir)
         if not os.path.exists(write_path):
             os.makedirs(write_path)
-         # 1.初始化 contacts.csv —— 
+        # 1.初始化 contacts.csv —— 
         contacts_csv = os.path.join(write_path, "contacts.csv")
         self.contacts_file = open(contacts_csv, "w", newline="")
         self.contacts_writer = csv.writer(self.contacts_file)

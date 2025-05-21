@@ -6,6 +6,7 @@ from model import FrameReceiver
 from views import ControlView, GestureView
 from controller import SystemController
 from PyQt5.QtWidgets import QApplication
+import subprocess
 
 def collector_process(cmd_queue, data_queue, state_queue):
     sc = SenselCollector(
@@ -20,7 +21,26 @@ def collector_process(cmd_queue, data_queue, state_queue):
             time.sleep(0.5)
     except KeyboardInterrupt:
         sc.stop()
-
+def call_remote_client_with_venv(user: str,
+                                 host: str,
+                                 remote_script: str,
+                                 venv_activate_path: str):
+    """
+    user: 登录用户名
+    host: 远程主机地址
+    remote_script: client.py 在远程的绝对路径
+    venv_activate_path: 远程虚拟环境 activate 脚本的绝对路径，
+                        例如 /home/user/myenv/bin/activate
+    """
+    # 用 bash -lc 确保读到 .bashrc/.profile（必要时加载环境变量）
+    remote_cmd = (
+        f"bash -lc \"source {venv_activate_path} "
+        f"&& python3 {remote_script}\""
+    )
+    ssh_cmd = ["ssh", f"{user}@{host}", remote_cmd]
+    subprocess.Popen(ssh_cmd)
+    
+    
 DATA_DIR = "data"
 def main():
     mgr         = Manager()
@@ -37,10 +57,19 @@ def main():
     p.daemon = True
     p.start()
 
+
+    # #调用远程脚本
+    # call_remote_client_with_venv(
+    #                                 user="zhenqis123",
+    #                                 host="183.173.107.7",
+    #                                 remote_script="/home/zhenqis123/develop/test/client_azh.py",
+    #                                 venv_activate_path="/home/zhenqis123/anaconda3/envs/wristband/bin/python"
+    #                             )   
+    
     # 2) 启动 Qt 主应用
     app = QApplication(sys.argv)
 
-    # 3) 退出时优雅地通知子进程结束
+    # 3) 退出时通知子进程结束
     def on_about_to_quit():
         # 通知 SenselCollector 停止
         cmd_queue.put({"cmd": "exit"})

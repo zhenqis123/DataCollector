@@ -39,26 +39,6 @@ class ControlView(QWidget):
 
         self.setStyleSheet(self._get_stylesheet())
 
-    def setup_animation(self):
-        """初始化动画绘图区域，只做一次"""
-        self.anim_fig = Figure(figsize=(4, 4))
-        self.anim_ax = self.anim_fig.add_subplot(111)
-        self.anim_ax.set_title("Sensel Pressure & Contacts", fontsize=10)
-        data0 = np.zeros((105, 180), dtype=float)
-        # 只创建一次 image artist
-        self.im_artist = self.anim_ax.imshow(
-            data0, cmap='jet', vmin=0, vmax=20,
-            extent=(0, 180, 0, 105), origin='lower', aspect='auto'
-        )
-        # 只创建一次 scatter artist
-        self.scat_artist = self.anim_ax.scatter(
-            [], [], s=[], c='white',
-            edgecolors='black', alpha=0.5, zorder=2
-        )
-        # 用来存 text artist
-        self.text_artists = []
-        self.anim_canvas = FigureCanvas(self.anim_fig)
-
     def init_ui(self):
         # —— 在使用之前先定义所有状态显示用的 QLabel —— 
         from PyQt5.QtWidgets import QLabel
@@ -321,14 +301,38 @@ class ControlView(QWidget):
        
         
     def update_video(self, frame):
+        # h, w, ch = frame.shape
+        # bytes_per_line = ch * w
+        # q_img = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        # self.video_label.setPixmap(
+        #     QPixmap.fromImage(q_img).scaled(
+        #         self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+        #     )
+        # )
+        """按图片中心裁剪成正方形，然后上下翻转再显示"""
+        # 1. 中心裁剪正方形
         h, w, ch = frame.shape
-        bytes_per_line = ch * w
-        q_img = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        side = min(h, w)
+        x0 = (w - side) // 2
+        y0 = (h - side) // 2
+        cropped = frame[y0 : y0 + side, x0 : x0 + side]
+
+        # 2. 上下翻转
+        flipped = cropped[::-1, :, :]
+
+        # 3. 转为 QImage 并更新 QLabel
+        h2, w2, ch2 = flipped.shape
+        bytes_per_line = ch2 * w2
+        q_img = QImage(flipped.data, w2, h2, bytes_per_line, QImage.Format_RGB888)
         self.video_label.setPixmap(
-            QPixmap.fromImage(q_img).scaled(
-                self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-            )
+            QPixmap.fromImage(q_img)
+                .scaled(
+                    self.video_label.size(),
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation
+                )
         )
+        
 
     def update_imu_data(self, data):
         timestamp = float(data["timestamp"])
